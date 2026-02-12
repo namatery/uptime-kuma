@@ -112,8 +112,13 @@ class UptimeKumaServer {
         // Set Monitor Types
         const httpMonitorType = new HttpMonitorType();
         UptimeKumaServer.monitorTypeList["http"] = httpMonitorType;
-        UptimeKumaServer.monitorTypeList["keyword"] = httpMonitorType;
-        UptimeKumaServer.monitorTypeList["json-query"] = httpMonitorType;
+
+        const keywordMonitorType = new HttpMonitorType();
+        keywordMonitorType.supportsConditions = false;
+        keywordMonitorType.conditionVariables = [];
+        UptimeKumaServer.monitorTypeList["keyword"] = keywordMonitorType;
+        UptimeKumaServer.monitorTypeList["json-query"] = keywordMonitorType;
+
         UptimeKumaServer.monitorTypeList["real-browser"] = new RealBrowserMonitorType();
         UptimeKumaServer.monitorTypeList["tailscale-ping"] = new TailscalePing();
         UptimeKumaServer.monitorTypeList["websocket-upgrade"] = new WebSocketMonitorType();

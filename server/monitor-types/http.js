@@ -14,9 +14,19 @@ const crypto = require("crypto");
 const { CookieJar } = require("tough-cookie");
 const { HttpsCookieAgent } = require("http-cookie-agent/http");
 const http = require("http");
+const { ConditionVariable } = require("../monitor-conditions/variables");
+const { defaultStringOperators, defaultNumberOperators } = require("../monitor-conditions/operators");
+const { ConditionExpressionGroup } = require("../monitor-conditions/expression");
+const { evaluateExpressionGroup } = require("../monitor-conditions/evaluator");
 
 class HttpMonitorType extends MonitorType {
     name = "http";
+
+    supportsConditions = true;
+
+    conditionVariables = [
+        new ConditionVariable("response_body", defaultStringOperators),
+    ];
 
     /**
      * @inheritdoc
@@ -220,52 +230,113 @@ class HttpMonitorType extends MonitorType {
             log.info("monitor", res.data);
         }
 
-        if (monitor.type === "http") {
-            heartbeat.status = UP;
+        // Check if conditions are defined
+        const conditions = monitor.conditions ? ConditionExpressionGroup.fromMonitor(monitor) : null;
+        const hasConditions = conditions && conditions.children && conditions.children.length > 0;
+
+        if (hasConditions) {
+            this.checkConditions(monitor, heartbeat, res, conditions);
         } else if (monitor.type === "keyword") {
-            let data = res.data;
-
-            // Convert to string for object/array
-            if (typeof data !== "string") {
-                data = JSON.stringify(data);
-            }
-
-            let keywordFound = data.includes(monitor.keyword);
-            if (keywordFound === !monitor.isInvertKeyword()) {
-                heartbeat.msg += ", keyword " + (keywordFound ? "is" : "not") + " found";
-                heartbeat.status = UP;
-            } else {
-                data = data.replace(/<[^>]*>?|[\n\r]|\s+/gm, " ").trim();
-                if (data.length > 50) {
-                    data = data.substring(0, 47) + "...";
-                }
-                throw new Error(
-                    heartbeat.msg +
-                        ", but keyword is " +
-                        (keywordFound ? "present" : "not") +
-                        " in [" +
-                        data +
-                        "]"
-                );
-            }
+            // Legacy keyword check (backward compatibility)
+            this.checkKeyword(monitor, heartbeat, res);
         } else if (monitor.type === "json-query") {
-            let data = res.data;
+            // Legacy json-query check (backward compatibility)
+            await this.checkJsonQuery(monitor, heartbeat, res);
+        } else {
+            // Plain HTTP status check
+            heartbeat.status = UP;
+        }
+    }
 
-            const { status, response } = await evaluateJsonQuery(
-                data,
-                monitor.jsonPath,
-                monitor.jsonPathOperator,
-                monitor.expectedValue
-            );
+    /**
+     * Evaluate monitor conditions against the HTTP response.
+     * @param {object} monitor Monitor object
+     * @param {object} heartbeat Heartbeat object
+     * @param {object} res Axios response object
+     * @param {ConditionExpressionGroup} conditions Parsed conditions
+     * @returns {void}
+     * @throws {Error} If conditions are not met
+     */
+    checkConditions(monitor, heartbeat, res, conditions) {
+        let responseBody = res.data;
+        if (typeof responseBody !== "string") {
+            responseBody = JSON.stringify(responseBody);
+        }
 
-            if (status) {
-                heartbeat.status = UP;
-                heartbeat.msg = `JSON query passes (comparing ${response} ${monitor.jsonPathOperator} ${monitor.expectedValue})`;
-            } else {
-                throw new Error(
-                    `JSON query does not pass (comparing ${response} ${monitor.jsonPathOperator} ${monitor.expectedValue})`
-                );
+        const conditionData = {
+            response_body: responseBody,
+        };
+
+        const conditionsResult = evaluateExpressionGroup(conditions, conditionData);
+
+        if (conditionsResult) {
+            heartbeat.status = UP;
+        } else {
+            throw new Error(heartbeat.msg + ", but conditions are not met");
+        }
+    }
+
+    /**
+     * Legacy keyword check for backward compatibility.
+     * @param {object} monitor Monitor object
+     * @param {object} heartbeat Heartbeat object
+     * @param {object} res Axios response object
+     * @returns {void}
+     * @throws {Error} If keyword is not found (or found when inverted)
+     */
+    checkKeyword(monitor, heartbeat, res) {
+        let data = res.data;
+
+        // Convert to string for object/array
+        if (typeof data !== "string") {
+            data = JSON.stringify(data);
+        }
+
+        let keywordFound = data.includes(monitor.keyword);
+        if (keywordFound === !monitor.isInvertKeyword()) {
+            heartbeat.msg += ", keyword " + (keywordFound ? "is" : "not") + " found";
+            heartbeat.status = UP;
+        } else {
+            data = data.replace(/<[^>]*>?|[\n\r]|\s+/gm, " ").trim();
+            if (data.length > 50) {
+                data = data.substring(0, 47) + "...";
             }
+            throw new Error(
+                heartbeat.msg +
+                    ", but keyword is " +
+                    (keywordFound ? "present" : "not") +
+                    " in [" +
+                    data +
+                    "]"
+            );
+        }
+    }
+
+    /**
+     * Legacy JSON query check for backward compatibility.
+     * @param {object} monitor Monitor object
+     * @param {object} heartbeat Heartbeat object
+     * @param {object} res Axios response object
+     * @returns {Promise<void>}
+     * @throws {Error} If JSON query does not pass
+     */
+    async checkJsonQuery(monitor, heartbeat, res) {
+        let data = res.data;
+
+        const { status, response } = await evaluateJsonQuery(
+            data,
+            monitor.jsonPath,
+            monitor.jsonPathOperator,
+            monitor.expectedValue
+        );
+
+        if (status) {
+            heartbeat.status = UP;
+            heartbeat.msg = `JSON query passes (comparing ${response} ${monitor.jsonPathOperator} ${monitor.expectedValue})`;
+        } else {
+            throw new Error(
+                `JSON query does not pass (comparing ${response} ${monitor.jsonPathOperator} ${monitor.expectedValue})`
+            );
         }
     }
 }
