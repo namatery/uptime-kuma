@@ -110,6 +110,10 @@ class UptimeKumaServer {
         }
 
         // Set Monitor Types
+        const httpMonitorType = new HttpMonitorType();
+        UptimeKumaServer.monitorTypeList["http"] = httpMonitorType;
+        UptimeKumaServer.monitorTypeList["keyword"] = httpMonitorType;
+        UptimeKumaServer.monitorTypeList["json-query"] = httpMonitorType;
         UptimeKumaServer.monitorTypeList["real-browser"] = new RealBrowserMonitorType();
         UptimeKumaServer.monitorTypeList["tailscale-ping"] = new TailscalePing();
         UptimeKumaServer.monitorTypeList["websocket-upgrade"] = new WebSocketMonitorType();
@@ -582,4 +586,5 @@ const { RedisMonitorType } = require("./monitor-types/redis");
 const { SystemServiceMonitorType } = require("./monitor-types/system-service");
 const { MssqlMonitorType } = require("./monitor-types/mssql");
 const { MysqlMonitorType } = require("./monitor-types/mysql");
+const { HttpMonitorType } = require("./monitor-types/http");
 const Monitor = require("./model/monitor");
